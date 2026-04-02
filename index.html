@@ -193,6 +193,36 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         
+        // 오디오 컨텍스트 (효과음용)
+        let audioCtx;
+        const initAudio = () => {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        };
+
+        const playCatchSound = () => {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            osc.type = 'sine'; // 부드러운 소리
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime); // 800Hz 주파수
+            osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1); // 살짝 올라가는 경쾌한 음
+            
+            gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime); // 볼륨 30%
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); // 짧게 사라짐
+            
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.1);
+        };
+        
         // UI 엘리먼트
         const ui = {
             loading: document.getElementById('loadingScreen'),
@@ -347,6 +377,9 @@
         };
 
         const startGame = () => {
+            // 브라우저 정책상 사용자 조작(클릭) 시점에 오디오를 초기화/재개해야 함
+            initAudio();
+
             state.score = 0;
             state.timeLeft = GAME_DURATION;
             state.lastTick = performance.now();
@@ -468,6 +501,9 @@
                                 blossom.active = false;
                                 state.score++;
                                 ui.scoreDisp.innerText = state.score;
+                                
+                                // 효과음 재생
+                                playCatchSound();
                                 
                                 // 파티클 생성
                                 state.particles.push(new Particle(blossom.x, blossom.y));
