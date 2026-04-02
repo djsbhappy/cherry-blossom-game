@@ -36,7 +36,7 @@
     <div id="loadingScreen" class="absolute inset-0 flex flex-col items-center justify-center z-50 bg-gray-900">
         <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-pink-400 mb-4"></div>
         <h2 class="text-2xl font-bold text-pink-300">카메라 및 AI 모델 로딩 중...</h2>
-        <p class="text-gray-400 mt-2">잠시만 기다려주세요.</p>
+        <p class="text-gray-400 mt-2">최적화 모드로 준비 중입니다.</p>
     </div>
 
     <!-- 메인 메뉴 -->
@@ -96,7 +96,6 @@
         let db, auth, currentUser;
         const initFirebase = async () => {
             try {
-                // 환경 변수에서 설정 가져오기 (가상 환경 지원)
                 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'cherry-blossom-game';
                 
@@ -109,7 +108,6 @@
                 auth = getAuth(app);
                 db = getFirestore(app);
 
-                // 인증 처리 (필수)
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     await signInWithCustomToken(auth, __initial_auth_token);
                 } else {
@@ -130,19 +128,12 @@
             }
         };
 
-        // 순위표 실시간 리스너
         let topScores = [];
         const setupLeaderboard = (appId) => {
             if (!currentUser || !db) return;
-            
-            // 필수 규칙 1: 지정된 경로 사용
             const scoresRef = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
-            
-            // 필수 규칙 2: 복잡한 쿼리(orderBy, limit) 없이 전체를 가져와 메모리에서 정렬
             onSnapshot(scoresRef, (snapshot) => {
                 const allScores = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                
-                // 점수 내림차순 정렬 후 상위 5개 추출
                 topScores = allScores.sort((a, b) => b.score - a.score).slice(0, 5);
                 renderLeaderboard();
             }, (error) => {
@@ -163,9 +154,8 @@
                 }).join('');
             };
 
-            const html = createListHTML();
-            document.getElementById('menuLeaderboard').innerHTML = html;
-            document.getElementById('gameOverLeaderboard').innerHTML = html;
+            document.getElementById('menuLeaderboard').innerHTML = createListHTML();
+            document.getElementById('gameOverLeaderboard').innerHTML = createListHTML();
         };
 
         const saveScoreToFirebase = async (name, score) => {
@@ -209,12 +199,12 @@
             const osc = audioCtx.createOscillator();
             const gainNode = audioCtx.createGain();
             
-            osc.type = 'sine'; // 부드러운 소리
-            osc.frequency.setValueAtTime(800, audioCtx.currentTime); // 800Hz 주파수
-            osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1); // 살짝 올라가는 경쾌한 음
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
             
-            gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime); // 볼륨 30%
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1); // 짧게 사라짐
+            gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
             
             osc.connect(gainNode);
             gainNode.connect(audioCtx.destination);
@@ -243,30 +233,34 @@
         let lastVideoTime = -1;
         let animationFrameId;
         
+        // AI 연산 최적화를 위한 딜레이 설정 (프레임 스킵)
+        let lastInferenceTime = 0;
+        const INFERENCE_INTERVAL = 60; // 약 16FPS로 AI 추적 속도 제한 (부하 대폭 감소)
+        
         // 게임 상태
         const GAME_DURATION = 30; // 30초
         let state = {
-            status: 'LOADING', // LOADING, MENU, PLAYING, GAMEOVER
+            status: 'LOADING',
             score: 0,
             timeLeft: GAME_DURATION,
             lastTick: 0,
             blossoms: [],
             particles: [],
             isGrabbing: false,
-            grabPosList: []
+            grabPosList: [] // 캐싱된 손바닥 위치 (AI 연산이 쉬는 동안에도 렌더링 유지)
         };
 
         // 벚꽃 객체 클래스
         class Blossom {
             constructor() {
                 this.reset();
-                this.y = Math.random() * canvas.height; // 초기엔 화면 전체에 분포
+                this.y = Math.random() * canvas.height;
             }
             reset() {
                 this.x = Math.random() * canvas.width;
                 this.y = -50;
-                this.size = Math.random() * 20 + 20; // 20~40px
-                this.speed = Math.random() * 5 + 4;  // 4~9 속도
+                this.size = Math.random() * 20 + 20;
+                this.speed = Math.random() * 5 + 4;
                 this.swaySpeed = Math.random() * 0.05 + 0.02;
                 this.swayAmount = Math.random() * 50 + 20;
                 this.seed = Math.random() * 100;
@@ -277,7 +271,7 @@
             update(time) {
                 if (!this.active) return;
                 this.y += this.speed;
-                this.x += Math.sin(time * this.swaySpeed + this.seed) * 2; // 좌우 살랑살랑
+                this.x += Math.sin(time * this.swaySpeed + this.seed) * 2;
                 this.rotation += this.rotSpeed;
 
                 if (this.y > canvas.height + 50) {
@@ -297,7 +291,7 @@
             }
         }
 
-        // 획득 시 파티클 애니메이션
+        // 파티클 애니메이션
         class Particle {
             constructor(x, y) {
                 this.x = x;
@@ -320,23 +314,21 @@
             }
         }
 
-        // 초기화: 캔버스 리사이즈
         const resizeCanvas = () => {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            // 벚꽃 개수 화면 크기에 비례 (밀도 대폭 증가: 기존 40000 -> 10000)
-            const blossomCount = Math.floor((canvas.width * canvas.height) / 10000);
-            if (state.blossoms.length === 0) {
-                for (let i = 0; i < blossomCount; i++) state.blossoms.push(new Blossom());
-            }
+            // 최적화: 너무 많으면 부하가 심하므로 12000 비율로 적당히 타협
+            const blossomCount = Math.floor((canvas.width * canvas.height) / 12000);
+            state.blossoms = [];
+            for (let i = 0; i < blossomCount; i++) state.blossoms.push(new Blossom());
         };
         window.addEventListener('resize', resizeCanvas);
 
-        // 카메라 설정
+        // 최적화 1: 카메라 해상도를 낮춰(640x480) 분석 연산량 대폭 감소
         const startCamera = async () => {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { width: 1280, height: 720, facingMode: "user" } 
+                    video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" } 
                 });
                 video.srcObject = stream;
                 return new Promise((resolve) => {
@@ -348,7 +340,6 @@
             }
         };
 
-        // MediaPipe 초기화
         const initMediaPipe = async () => {
             const vision = await FilesetResolver.forVisionTasks(
                 "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
@@ -359,11 +350,10 @@
                     delegate: "GPU"
                 },
                 runningMode: "VIDEO",
-                numHands: 2 // 양손 인식
+                numHands: 2
             });
         };
 
-        // 게임 제어 함수
         const changeState = (newState) => {
             state.status = newState;
             ui.loading.classList.add('hidden');
@@ -377,9 +367,7 @@
         };
 
         const startGame = () => {
-            // 브라우저 정책상 사용자 조작(클릭) 시점에 오디오를 초기화/재개해야 함
             initAudio();
-
             state.score = 0;
             state.timeLeft = GAME_DURATION;
             state.lastTick = performance.now();
@@ -401,129 +389,104 @@
             ui.finalScoreDisp.innerText = state.score;
         };
 
-        // 메인 렌더링 및 게임 루프
+        // 메인 루프
         const gameLoop = (timestamp) => {
-            // 캔버스 클리어 및 카메라 미러링 그리기
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             
-            // 카메라 이미지를 좌우 반전하여 캔버스에 가득 차게 그림
+            // 캔버스 배경 (비디오)
             ctx.save();
             ctx.scale(-1, 1);
             ctx.translate(-canvas.width, 0);
-            
-            // Cover 비율 계산
             const vRatio = canvas.width / video.videoWidth;
             const hRatio = canvas.height / video.videoHeight;
             const ratio = Math.max(vRatio, hRatio);
             const centerShift_x = (canvas.width - video.videoWidth * ratio) / 2;
             const centerShift_y = (canvas.height - video.videoHeight * ratio) / 2;  
-            
             ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight,
                           centerShift_x, centerShift_y, video.videoWidth * ratio, video.videoHeight * ratio);
             ctx.restore();
 
-            // Hand Tracking 결과 가져오기
-            let results = null;
-            if (handLandmarker && video.currentTime !== lastVideoTime) {
+            // 최적화 2: 프레임 스킵 (AI 추적은 일정 주기마다 한 번씩만 실행)
+            if (handLandmarker && video.currentTime !== lastVideoTime && (timestamp - lastInferenceTime > INFERENCE_INTERVAL)) {
                 lastVideoTime = video.currentTime;
-                results = handLandmarker.detectForVideo(video, timestamp);
-            }
+                lastInferenceTime = timestamp;
+                
+                const results = handLandmarker.detectForVideo(video, timestamp);
+                
+                state.isGrabbing = false;
+                state.grabPosList = []; // 데이터 최신화
 
-            // 주먹 쥐기(Grab) 로직
-            state.isGrabbing = false;
-            state.grabPosList = [];
+                if (results && results.landmarks) {
+                    for (const landmarks of results.landmarks) {
+                        const isFingerFolded = (tipIdx, mcpIdx) => {
+                            const tip = landmarks[tipIdx];
+                            const mcp = landmarks[mcpIdx];
+                            const wrist = landmarks[0];
+                            const distTip = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+                            const distMcp = Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y);
+                            return distTip < distMcp;
+                        };
 
-            if (results && results.landmarks) {
-                for (const landmarks of results.landmarks) {
-                    // 손가락이 접혔는지 확인 (끝마디가 첫마디보다 손목에 가까운지)
-                    const isFingerFolded = (tipIdx, mcpIdx) => {
-                        const tip = landmarks[tipIdx];
-                        const mcp = landmarks[mcpIdx];
-                        const wrist = landmarks[0];
-                        const distTip = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
-                        const distMcp = Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y);
-                        return distTip < distMcp;
-                    };
+                        const isGrab = isFingerFolded(8, 5) && isFingerFolded(12, 9) && isFingerFolded(16, 13) && isFingerFolded(20, 17);
+                        const palm = landmarks[9];
+                        const px = (1 - palm.x) * canvas.width;
+                        const py = palm.y * canvas.height;
+                        const grabRadius = Math.max(canvas.width * 0.08, 60);
 
-                    // 검지, 중지, 약지, 새끼가 모두 접혀있으면 주먹(Grab)으로 간주
-                    const isGrab = isFingerFolded(8, 5) && isFingerFolded(12, 9) && isFingerFolded(16, 13) && isFingerFolded(20, 17);
-
-                    // 손바닥 중심점 (중지 기저 부분 9번 랜드마크)
-                    const palm = landmarks[9];
-                    // 좌표 변환 (MediaPipe는 0~1 정규화값, 미러링되었으므로 X축 반전 필요)
-                    const px = (1 - palm.x) * canvas.width;
-                    const py = palm.y * canvas.height;
-
-                    // 화면 크기에 비례한 손바닥 인식 반경 (최소 60px 보장)
-                    const grabRadius = Math.max(canvas.width * 0.08, 60);
-
-                    // 손바닥 위치 시각적 표시 (플레이어 가이드)
-                    ctx.beginPath();
-                    ctx.arc(px, py, grabRadius, 0, 2 * Math.PI);
-                    
-                    if (isGrab) {
-                        state.isGrabbing = true;
-                        state.grabPosList.push({ x: px, y: py, radius: grabRadius });
-                        ctx.fillStyle = 'rgba(0, 255, 100, 0.4)'; // 주먹 쥐면 초록색
-                        ctx.shadowBlur = 15;
-                        ctx.shadowColor = "lime";
-                    } else {
-                        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)'; // 평소엔 흰색 반투명
-                        ctx.shadowBlur = 0;
+                        // 캐시에 저장하여 렌더링 루프에서 사용
+                        state.grabPosList.push({ x: px, y: py, radius: grabRadius, isGrab: isGrab });
+                        if (isGrab) state.isGrabbing = true;
                     }
-                    ctx.fill();
                 }
             }
 
-            // 플레이 중일 때 업데이트 로직
+            // 시각적 피드백 (캐싱된 데이터를 이용해 매 프레임 부드럽게 렌더링)
+            for (const pos of state.grabPosList) {
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, pos.radius, 0, 2 * Math.PI);
+                if (pos.isGrab) {
+                    ctx.fillStyle = 'rgba(0, 255, 100, 0.4)';
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = "lime";
+                } else {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+                    ctx.shadowBlur = 0;
+                }
+                ctx.fill();
+            }
+
             if (state.status === 'PLAYING') {
-                // 타이머 처리
                 if (timestamp - state.lastTick >= 1000) {
                     state.timeLeft--;
                     ui.timerDisp.innerText = state.timeLeft;
                     state.lastTick = timestamp;
-                    
-                    if (state.timeLeft <= 0) {
-                        gameOver();
-                    }
+                    if (state.timeLeft <= 0) gameOver();
                 }
 
-                // 벚꽃 업데이트 및 충돌 체크
                 state.blossoms.forEach(blossom => {
                     blossom.update(timestamp);
-                    
-                    // 주먹 쥐기(Grab) 충돌 처리
                     if (state.isGrabbing && blossom.active) {
                         for (const pos of state.grabPosList) {
+                            if (!pos.isGrab) continue;
                             const distToBlossom = Math.hypot(pos.x - blossom.x, pos.y - blossom.y);
-                            // 잡히는 반경: 손바닥 반경 + 벚꽃 크기
                             if (distToBlossom < pos.radius + blossom.size) {
                                 blossom.active = false;
                                 state.score++;
                                 ui.scoreDisp.innerText = state.score;
-                                
-                                // 효과음 재생
                                 playCatchSound();
-                                
-                                // 파티클 생성
                                 state.particles.push(new Particle(blossom.x, blossom.y));
-                                
-                                // 약간의 딜레이 후 다시 위에서 스폰
                                 setTimeout(() => { blossom.reset(); }, 500);
-                                break; // 이 벚꽃은 잡혔으므로 다른 손 검사 패스
+                                break;
                             }
                         }
                     }
                 });
             } else if (state.status === 'MENU' || state.status === 'GAMEOVER') {
-                // 메뉴/종료 화면에서도 배경으로 벚꽃은 계속 떨어지게 연출
                 state.blossoms.forEach(b => b.update(timestamp));
             }
 
-            // 벚꽃 그리기
             state.blossoms.forEach(b => b.draw(ctx));
 
-            // 파티클 업데이트 및 그리기
             for (let i = state.particles.length - 1; i >= 0; i--) {
                 const p = state.particles[i];
                 p.update();
@@ -534,20 +497,13 @@
             animationFrameId = requestAnimationFrame(gameLoop);
         };
 
-        // 버튼 이벤트 리스너 세팅
         ui.btnStart.addEventListener('click', startGame);
         ui.btnRestart.addEventListener('click', startGame);
         
         ui.btnSubmit.addEventListener('click', async () => {
             const name = ui.nameInput.value.trim();
-            if (!name) {
-                alert("이름을 입력해주세요.");
-                return;
-            }
-            if (state.score === 0) {
-                alert("점수가 0점이라 등록할 수 없습니다.");
-                return;
-            }
+            if (!name) { alert("이름을 입력해주세요."); return; }
+            if (state.score === 0) { alert("점수가 0점이라 등록할 수 없습니다."); return; }
 
             ui.btnSubmit.disabled = true;
             ui.btnSubmit.classList.add('opacity-50', 'cursor-not-allowed');
@@ -558,30 +514,25 @@
                 ui.submitMsg.classList.remove('hidden');
                 ui.btnSubmit.innerText = "등록 완료";
             } else {
-                alert("점수 등록에 실패했습니다. (DB 연결 확인)");
+                alert("점수 등록에 실패했습니다.");
                 ui.btnSubmit.disabled = false;
                 ui.btnSubmit.classList.remove('opacity-50', 'cursor-not-allowed');
                 ui.btnSubmit.innerText = "등록";
             }
         });
 
-        // 앱 초기 구동
         const initApp = async () => {
             resizeCanvas();
-            
-            // 병렬로 리소스 로딩
             const pFirebase = initFirebase();
             const pCamera = startCamera();
             const pModel = initMediaPipe();
 
             await Promise.all([pFirebase, pCamera, pModel]);
             
-            // 로딩 완료 후 메뉴 전환 및 루프 시작
             changeState('MENU');
             gameLoop(performance.now());
         };
 
-        // 시작
         window.onload = initApp;
 
     </script>
