@@ -251,15 +251,25 @@
         let lastVideoTime = -1;
         let animationFrameId;
 
-        // --- [최적화] AI 추론 주기 확대 (60ms → 100ms, ~10FPS 추적) ---
+        // --- [최적화] AI 추론 주기 확대 (100ms → 150ms, ~7FPS 추적) ---
         let lastInferenceTime = 0;
-        const INFERENCE_INTERVAL = 100;
+        const INFERENCE_INTERVAL = 150;
 
         // --- [최적화] 손 위치 보간용 데이터 ---
         let prevGrabPosList = [];
         let currGrabPosList = [];
         let interpT = 0;
         let lastInferenceTimestamp = 0;
+
+        // --- [최적화] 프레임 레이트 상한 (60fps) ---
+        let lastFrameTime = 0;
+        const FRAME_CAP_MS = 1000 / 60;
+
+        // --- [최적화] grabPos 객체 풀 (매 프레임 allocation 방지) ---
+        const _grabPosPool = [
+            {x:0, y:0, radius:0, isGrab:false},
+            {x:0, y:0, radius:0, isGrab:false}
+        ];
 
         const GAME_DURATION = 30;
         let state = {
@@ -287,6 +297,10 @@
                 this.rotation = Math.random() * Math.PI * 2;
                 this.rotSpeed = (Math.random() - 0.5) * 0.1;
                 this.active = true;
+                // --- [최적화] 드로우 크기 사전 계산 (매 프레임 나눗셈 제거) ---
+                const _s = this.size / (BLOSSOM_CACHE_SIZE - 8);
+                this.drawSize = BLOSSOM_CACHE_SIZE * _s;
+                this.halfSize = this.drawSize * 0.5;
             }
             update(time) {
                 if (!this.active) return;
@@ -297,14 +311,12 @@
             }
             draw(ctx) {
                 if (!this.active) return;
-                ctx.save();
-                ctx.translate(this.x, this.y);
-                ctx.rotate(this.rotation);
-                // --- [최적화] 캐시된 이미지로 그리기 (fillText 이모지 제거) ---
-                const s = this.size / (BLOSSOM_CACHE_SIZE - 8);
-                const half = BLOSSOM_CACHE_SIZE * s * 0.5;
-                ctx.drawImage(blossomCache, -half, -half, BLOSSOM_CACHE_SIZE * s, BLOSSOM_CACHE_SIZE * s);
-                ctx.restore();
+                // --- [최적화] setTransform으로 save/restore 제거 (스택 조작 없음) ---
+                // 리셋은 루프 종료 후 일괄 처리
+                const cos = Math.cos(this.rotation);
+                const sin = Math.sin(this.rotation);
+                ctx.setTransform(cos, sin, -sin, cos, this.x, this.y);
+                ctx.drawImage(blossomCache, -this.halfSize, -this.halfSize, this.drawSize, this.drawSize);
             }
         }
 
@@ -314,10 +326,10 @@
             update() { this.y += this.dy; this.life -= 0.03; }
             draw(ctx) {
                 if (this.life <= 0) return;
-                ctx.save();
+                // --- [최적화] save/restore 제거 → globalAlpha 직접 설정/복구 ---
                 ctx.globalAlpha = this.life;
                 ctx.drawImage(plusOneCache, this.x - 24, this.y - 16);
-                ctx.restore();
+                ctx.globalAlpha = 1;
             }
         }
 
@@ -390,18 +402,17 @@
             ui.finalScoreDisp.innerText = state.score;
         };
 
-        // --- 보간 헬퍼 ---
-        const lerpPos = (a, b, t) => ({
-            x: a.x + (b.x - a.x) * t,
-            y: a.y + (b.y - a.y) * t,
-            radius: a.radius,
-            isGrab: b.isGrab
-        });
+        // lerpPos 제거 — 인라인 풀 방식으로 대체
 
         // ==========================================
         // 메인 루프
         // ==========================================
         const gameLoop = (timestamp) => {
+            animationFrameId = requestAnimationFrame(gameLoop);
+            // --- [최적화] 프레임 레이트 상한 (120Hz+ 디바이스 대응) ---
+            if (timestamp - lastFrameTime < FRAME_CAP_MS) return;
+            lastFrameTime = timestamp;
+
             // --- [최적화] 비디오 drawImage 완전 제거 (CSS 배경 사용) ---
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -442,17 +453,26 @@
                 interpT = 0;
             }
 
-            // --- [최적화] 프레임 간 손 위치 선형 보간 (부드러운 추적) ---
+            // --- [최적화] 프레임 간 손 위치 선형 보간 (풀 재사용, allocation 없음) ---
             if (lastInferenceTimestamp > 0) {
                 interpT = Math.min((timestamp - lastInferenceTimestamp) / INFERENCE_INTERVAL, 1.0);
             }
-            state.grabPosList = [];
-            for (let i = 0; i < currGrabPosList.length; i++) {
+            const grabPosCount = currGrabPosList.length;
+            state.grabPosList.length = 0;
+            for (let i = 0; i < grabPosCount; i++) {
+                const p = _grabPosPool[i];
+                const curr = currGrabPosList[i];
                 if (i < prevGrabPosList.length) {
-                    state.grabPosList.push(lerpPos(prevGrabPosList[i], currGrabPosList[i], interpT));
+                    const prev = prevGrabPosList[i];
+                    p.x = prev.x + (curr.x - prev.x) * interpT;
+                    p.y = prev.y + (curr.y - prev.y) * interpT;
                 } else {
-                    state.grabPosList.push(currGrabPosList[i]);
+                    p.x = curr.x;
+                    p.y = curr.y;
                 }
+                p.radius = curr.radius;
+                p.isGrab = curr.isGrab;
+                state.grabPosList.push(p);
             }
 
             // --- [최적화] 글로우 렌더링: shadowBlur 제거, 캐시 이미지 사용 ---
@@ -505,15 +525,19 @@
 
             // 드로우
             for (let i = 0; i < state.blossoms.length; i++) state.blossoms[i].draw(ctx);
+            // --- [최적화] 벚꽃 루프 종료 후 transform 일괄 리셋 (루프 내 리셋 제거) ---
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
 
             for (let i = state.particles.length - 1; i >= 0; i--) {
                 const p = state.particles[i];
                 p.update();
                 p.draw(ctx);
-                if (p.life <= 0) state.particles.splice(i, 1);
+                // --- [최적화] splice 제거 → swap-with-last O(1) 삭제 ---
+                if (p.life <= 0) {
+                    state.particles[i] = state.particles[state.particles.length - 1];
+                    state.particles.length--;
+                }
             }
-
-            animationFrameId = requestAnimationFrame(gameLoop);
         };
 
         // 이벤트
