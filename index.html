@@ -29,7 +29,7 @@
     <canvas id="gameCanvas"></canvas>
 
     <!-- 인게임 HUD -->
-    <div id="hud" class="absolute top-0 left-0 w-full p-6 flex justify-between items-start pointer-events-none hidden z-10">
+    <div id="hud" class="fixed top-0 left-0 w-full p-6 flex justify-between items-start pointer-events-none hidden z-10">
         <div class="flex flex-col">
             <span class="text-xl text-pink-300 font-bold">점수</span>
             <span id="scoreDisplay" class="text-5xl font-extrabold pink-glow">0</span>
@@ -41,14 +41,14 @@
     </div>
 
     <!-- 로딩 화면 -->
-    <div id="loadingScreen" class="absolute inset-0 flex flex-col items-center justify-center z-50 bg-gray-900">
+    <div id="loadingScreen" class="fixed inset-0 flex flex-col items-center justify-center z-50 bg-gray-900">
         <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-pink-400 mb-4"></div>
         <h2 class="text-2xl font-bold text-pink-300">카메라 및 AI 모델 로딩 중...</h2>
         <p class="text-gray-400 mt-2">최적화 모드로 준비 중입니다.</p>
     </div>
 
     <!-- 메인 메뉴 -->
-    <div id="menuScreen" class="absolute inset-0 flex flex-col items-center justify-center z-40 glass-panel hidden">
+    <div id="menuScreen" class="fixed inset-0 flex flex-col items-center justify-center z-40 glass-panel hidden">
         <h1 class="text-6xl font-extrabold text-pink-400 mb-8 pink-glow">🌸 벚꽃 잡기 🌸</h1>
         <p class="text-xl mb-8 text-center max-w-md text-gray-200">
             카메라 앞에서 <span class="text-pink-300 font-bold">손바닥을 펴서 벚꽃에 대고 주먹을 쥐어(Grab)</span> 떨어지는 벚꽃을 잡으세요!
@@ -65,7 +65,7 @@
     </div>
 
     <!-- 게임 오버 화면 -->
-    <div id="gameOverScreen" class="absolute inset-0 flex flex-col items-center justify-center z-40 glass-panel hidden">
+    <div id="gameOverScreen" class="fixed inset-0 flex flex-col items-center justify-center z-40 glass-panel hidden overflow-y-auto">
         <h1 class="text-5xl font-extrabold text-red-400 mb-2">TIME OVER</h1>
         <div class="text-2xl mb-6">최종 점수: <span id="finalScore" class="text-5xl font-bold text-pink-400 pink-glow ml-2">0</span></div>
         <div id="nameInputSection" class="flex flex-col items-center mb-8">
@@ -95,12 +95,30 @@
         // Firebase (순위표)
         // ==========================================
         let db, auth, currentUser;
+        let useLocalStorage = false;
+
+        // localStorage 기반 리더보드 (Firebase 미설정 시 폴백)
+        const LS_KEY = 'cherry_blossom_leaderboard';
+        const getLocalScores = () => {
+            try { return JSON.parse(localStorage.getItem(LS_KEY) || '[]'); }
+            catch { return []; }
+        };
+        const saveLocalScore = (name, score) => {
+            const scores = getLocalScores();
+            scores.push({ name, score, timestamp: Date.now() });
+            scores.sort((a, b) => b.score - a.score);
+            localStorage.setItem(LS_KEY, JSON.stringify(scores.slice(0, 5)));
+        };
+
         const initFirebase = async () => {
             try {
                 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'cherry-blossom-game';
                 if (!firebaseConfig) {
-                    console.warn("Firebase config not found. Leaderboard disabled.");
+                    console.warn("Firebase config not found. localStorage 리더보드로 전환합니다.");
+                    useLocalStorage = true;
+                    topScores = getLocalScores();
+                    renderLeaderboard();
                     return null;
                 }
                 const app = initializeApp(firebaseConfig);
@@ -147,7 +165,14 @@
         };
 
         const saveScoreToFirebase = async (name, score) => {
-            if (!currentUser || !db || score <= 0) return false;
+            if (score <= 0) return false;
+            if (useLocalStorage) {
+                saveLocalScore(name || "무명", score);
+                topScores = getLocalScores();
+                renderLeaderboard();
+                return true;
+            }
+            if (!currentUser || !db) return false;
             try {
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'cherry-blossom-game';
                 await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard'), {
@@ -283,7 +308,7 @@
             grabPosList: []
         };
 
-        // --- [최적화] 벚꽃 개수 제한 (최대 50개) ---
+        // --- [최적화] 벚꽃 개수 제한 (최대 120개) ---
         class Blossom {
             constructor() { this.reset(); this.y = Math.random() * canvas.height; }
             reset() {
@@ -336,8 +361,8 @@
         const resizeCanvas = () => {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            // --- [최적화] 벚꽃 최대 50개 ---
-            const count = Math.min(Math.floor((canvas.width * canvas.height) / 30000), 50);
+            // --- [최적화] 벚꽃 최대 120개 ---
+            const count = Math.min(Math.floor((canvas.width * canvas.height) / 12000), 120);
             state.blossoms = [];
             for (let i = 0; i < count; i++) state.blossoms.push(new Blossom());
         };
