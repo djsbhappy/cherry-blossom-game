@@ -106,9 +106,14 @@
             <h2 id="gameOverLbTitle" class="text-2xl font-bold text-center text-pink-300 mb-4 border-b border-pink-800 pb-2">🏆 명예의 전당</h2>
             <ul id="gameOverLeaderboard" class="space-y-2"></ul>
         </div>
-        <button id="restartBtn" class="px-8 py-3 bg-gray-600 hover:bg-gray-500 rounded-full text-xl font-bold transition-colors shadow-lg">
-            다시 시작하기
-        </button>
+        <div class="flex flex-wrap gap-3 justify-center pb-6">
+            <button id="restartBtn" class="px-8 py-3 bg-gray-600 hover:bg-gray-500 rounded-full text-xl font-bold transition-colors shadow-lg">
+                다시 시작하기
+            </button>
+            <button id="menuBtn" class="px-8 py-3 bg-gray-700 hover:bg-gray-600 rounded-full text-xl font-bold transition-colors shadow-lg border border-gray-500">
+                테마 바꾸기
+            </button>
+        </div>
     </div>
 
     <script type="module">
@@ -1815,6 +1820,7 @@
             btnStart: document.getElementById('startBtn'),
             btnSubmit: document.getElementById('submitScoreBtn'),
             btnRestart: document.getElementById('restartBtn'),
+            btnMenu: document.getElementById('menuBtn'),
             menuTitle: document.getElementById('menuTitle'),
             menuDesc: document.getElementById('menuDesc'),
             legendBox: document.getElementById('legendBox'),
@@ -2315,6 +2321,8 @@
         ui.btnStart.addEventListener('click', startGame);
         ui.btnRestart.addEventListener('click', startGame);
         ui.themeBtns.forEach(btn => btn.addEventListener('click', () => applyTheme(btn.dataset.theme)));
+        // 테마 선택은 메뉴에만 있으므로, 한 판 끝난 뒤 메뉴로 돌아갈 길이 반드시 필요하다
+        ui.btnMenu.addEventListener('click', () => changeState('MENU'));
 
         ui.btnSubmit.addEventListener('click', async () => {
             const name = ui.nameInput.value.trim();
