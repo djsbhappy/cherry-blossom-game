@@ -1837,11 +1837,8 @@
         let lastInferenceTime = 0;
         const INFERENCE_INTERVAL = 150;
 
-        // --- [최적화] 손 위치 보간용 데이터 ---
-        let prevGrabPosList = [];
+        // 가장 최근 인식 결과. 판정도 손 뼈대 그리기도 모두 이 값을 쓴다.
         let currGrabPosList = [];
-        let interpT = 0;
-        let lastInferenceTimestamp = 0;
 
         // --- [최적화] 프레임 레이트 상한 (60fps) ---
         let lastFrameTime = 0;
@@ -2158,12 +2155,8 @@
             if (handLandmarker && video.currentTime !== lastVideoTime && (timestamp - lastInferenceTime > INFERENCE_INTERVAL)) {
                 lastVideoTime = video.currentTime;
                 lastInferenceTime = timestamp;
-                lastInferenceTimestamp = timestamp;
 
                 const results = handLandmarker.detectForVideo(video, timestamp);
-
-                // 이전 프레임 보관 (보간용)
-                prevGrabPosList = currGrabPosList.length > 0 ? currGrabPosList : [];
 
                 state.isGrabbing = false;
                 const newPosList = [];
@@ -2189,13 +2182,11 @@
                     }
                 }
                 currGrabPosList = newPosList;
-                interpT = 0;
             }
 
-            // --- [최적화] 프레임 간 손 위치 선형 보간 (풀 재사용, allocation 없음) ---
-            if (lastInferenceTimestamp > 0) {
-                interpT = Math.min((timestamp - lastInferenceTimestamp) / INFERENCE_INTERVAL, 1.0);
-            }
+            // 판정용 손 위치 (풀 재사용, allocation 없음).
+            // 보간하지 않는다 — 화면에 그려지는 손 뼈대가 최신 위치를 쓰므로,
+            // 보간하면 "손은 아이템 위에 있는데 판정은 옛 자리에서" 나는 어긋남이 생긴다.
             const grabPosCount = currGrabPosList.length;
             // 인식되지 않는 손은 다음에 나타날 때 바로 잡을 수 있도록 장전 상태로 되돌린다
             for (let i = grabPosCount; i < handArmed.length; i++) handArmed[i] = true;
@@ -2203,14 +2194,8 @@
             for (let i = 0; i < grabPosCount; i++) {
                 const p = _grabPosPool[i];
                 const curr = currGrabPosList[i];
-                if (i < prevGrabPosList.length) {
-                    const prev = prevGrabPosList[i];
-                    p.x = prev.x + (curr.x - prev.x) * interpT;
-                    p.y = prev.y + (curr.y - prev.y) * interpT;
-                } else {
-                    p.x = curr.x;
-                    p.y = curr.y;
-                }
+                p.x = curr.x;
+                p.y = curr.y;
                 p.radius = curr.radius;
                 p.isGrab = curr.isGrab;
                 state.grabPosList.push(p);
