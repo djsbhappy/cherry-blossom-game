@@ -22,6 +22,16 @@
         }
         .glass-panel { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(10px); }
         .pink-glow { text-shadow: 0 0 10px #ffb7c5, 0 0 20px #ffb7c5; }
+        /* 흰 글씨는 밝은 웹캠 배경에 묻힌다. 남은 시간은 색 + 검은 외곽선으로 띄운다. */
+        #timerDisplay {
+            color: #ffd23f;
+            text-shadow: 0 0 10px #ff9f1c, 0 0 22px #ff6b00,
+                         -2px 0 0 rgba(0,0,0,.85), 2px 0 0 rgba(0,0,0,.85),
+                         0 -2px 0 rgba(0,0,0,.85), 0 2px 0 rgba(0,0,0,.85);
+        }
+        /* 5초 이하 경고 */
+        #timerDisplay.urgent { color: #ff5a5a; animation: timerPulse .6s ease-in-out infinite; }
+        @keyframes timerPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.18); } }
         /* 테마 선택 버튼 */
         .theme-btn {
             border: 2px solid rgba(255,255,255,0.25);
@@ -51,6 +61,9 @@
             <span id="timerDisplay" class="text-5xl font-extrabold">30</span>
         </div>
     </div>
+
+    <!-- 성능 계기판: 주소 뒤에 ?fps=1 을 붙였을 때만 보인다 -->
+    <div id="fpsMeter" class="fixed bottom-2 left-2 px-2 py-1 rounded bg-black/70 text-xs font-mono text-green-300 z-30 hidden pointer-events-none">–</div>
 
     <!-- 로딩 화면 -->
     <div id="loadingScreen" class="fixed inset-0 flex flex-col items-center justify-center z-50" style="background-color:#b8d4f0">
@@ -241,7 +254,7 @@
         const PENALTY = 15;
 
         // --- [최적화] 아이템 스프라이트 사전 렌더링 캐시 ---
-        const BLOSSOM_CACHE_SIZE = 64;
+        const BLOSSOM_CACHE_SIZE = 128;
 
         const makeEmojiCache = (emoji) => {
             const c = document.createElement('canvas');
@@ -1794,13 +1807,13 @@
                 preciseCatch: true,
                 specialChance: 0.07,
                 // 그림을 알아보고 판단할 시간이 필요하므로 더 적게·크게·느리게 떨어진다.
-                density: 34000, minCount: 12, maxCount: 45,
-                sizeMin: 34, sizeVar: 16,
+                density: 100000, minCount: 10, maxCount: 22,
+                sizeMin: 40, sizeVar: 16,
                 speedMin: 2.2, speedVar: 2.4,
                 // 잡기 판정을 화면 폭이 아니라 "눈에 보이는 아이템 크기 + 여유"로 잡는다.
                 // 손 반경(화면 폭의 8%)을 쓰면 1920폭에서 판정원 안에 아이템이 평균 1.5~2.3개
                 // 들어와 무엇을 잡을지 고를 수 없게 된다. 이 값은 그 기대치를 0.2~0.3으로 낮춘다.
-                catchPad: 32,
+                catchPad: 40,
                 spin: false,               // 돌면 그림을 알아볼 수 없으므로 기우뚱거리기만
                 bgm: { melody: BGM_MELODY_KOREA, bass: BGM_BASS_KOREA, wave: 'triangle' },
             },
@@ -1833,26 +1846,66 @@
         let lastVideoTime = -1;
         let animationFrameId;
 
-        // --- [최적화] AI 추론 주기 확대 (100ms → 150ms, ~7FPS 추적) ---
+        // AI 추론 주기. 고정 150ms 는 빠른 PC 에서 불필요하게 굼뜨고(짧게 쥐었다 편 동작이
+        // 두 샘플 사이로 빠져나간다) 느린 PC 에서는 여전히 버겁다.
+        // detectForVideo 가 실제로 걸린 시간을 재서 주기를 스스로 맞춘다.
         let lastInferenceTime = 0;
-        const INFERENCE_INTERVAL = 150;
+        const INFER_MIN_MS = 100, INFER_MAX_MS = 220;
+        let inferCostMs = 20;                  // 완만한 이동평균
+        let inferenceInterval = INFER_MIN_MS;
 
         // 가장 최근 인식 결과. 판정도 손 뼈대 그리기도 모두 이 값을 쓴다.
         let currGrabPosList = [];
 
         // --- [최적화] 프레임 레이트 상한 (60fps) ---
         let lastFrameTime = 0;
-        const FRAME_CAP_MS = 1000 / 60;
+        // 60Hz 화면의 rAF 간격은 16.667ms 근처에서 미세하게 흔들린다(16.6 / 16.7 / 16.6 …).
+        // 상한을 1000/60(=16.667)으로 두면 16.6ms 로 들어온 프레임이 그때마다 통째로 버려져
+        // 30fps 로 뚝 떨어지고, 이것이 "랙 걸린 듯" 끊겨 보이는 주된 원인이었다.
+        // 70Hz 기준으로 낮춰 60Hz 는 전부 통과시키고 120Hz+ 만 절반으로 솎아낸다.
+        const FRAME_CAP_MS = 1000 / 70;
+        // 프레임 시간 정규화 기준 (60fps = 1.0)
+        const FRAME_MS = 1000 / 60;
 
         // --- [최적화] grabPos 객체 풀 (매 프레임 allocation 방지) ---
         const _grabPosPool = [
-            {x:0, y:0, radius:0, isGrab:false},
-            {x:0, y:0, radius:0, isGrab:false}
+            {x:0, y:0, radius:0, isGrab:false, hand:null},
+            {x:0, y:0, radius:0, isGrab:false, hand:null}
         ];
 
-        // 겨냥이 필요한 테마에서 "주먹을 쥔 순간"에만 한 번 판정하기 위한 손별 상태.
-        // 이게 없으면 주먹을 쥐고 있는 동안 매 프레임 한 개씩 계속 빨려 들어간다.
-        const handArmed = [true, true];
+        // 손별 상태. armed 는 "주먹을 쥔 순간"에만 한 번 판정하기 위한 장전 플래그이고
+        // (없으면 쥐고 있는 동안 매 프레임 한 개씩 빨려 들어간다), grab 은 히스테리시스용
+        // 직전 판정이다.
+        //
+        // 인식 결과 배열의 순서(hand 0/1)는 프레임마다 뒤바뀔 수 있다. 인덱스로 상태를
+        // 들고 있으면 두 손이 서로의 장전을 훔쳐가므로 왼손/오른손 라벨을 키로 쓴다.
+        const handStates = new Map();
+        const getHandState = (key) => {
+            let st = handStates.get(key);
+            if (!st) { st = { armed: true, grab: false }; handStates.set(key, st); }
+            return st;
+        };
+
+        // --- 주먹 판정 ---
+        // 손가락별 [끝, 손허리뼈]. 엄지(4)는 접는 방향이 달라 넣지 않는다.
+        const FINGER_JOINTS = [[8,5],[12,9],[16,13],[20,17]];
+        // 손목→끝 거리를 손목→관절 거리로 나눈 값. 손이 멀든 가깝든 같은 값이 나온다.
+        // 편 손가락은 1.7~2.2, 접은 손가락은 0.8~1.1 근처에 모인다.
+        //
+        // 기존 판정은 이 비율이 1.0 미만일 때만 "접혔다"로 봤는데, 이는 손가락 끝이
+        // 손목보다 관절에 더 가까이 와야 한다는 뜻이라 어지간히 꽉 쥐지 않으면 통과하지
+        // 못했다. 이것이 "잡았는데 안 잡힌다"의 주된 원인이다.
+        //
+        // 손 모양·카메라 각도에 따라 잘 맞는 값이 달라서 주소로 조정할 수 있게 열어 뒀다:
+        //   ?fold=1.4,1.7  → 더 헐겁게(살짝만 구부려도 잡힘)
+        //   ?fold=1.15,1.5 → 더 빡빡하게(꽉 쥐어야 잡힘)
+        const _foldArg = (new URLSearchParams(location.search).get('fold') || '').split(',').map(Number);
+        const FOLD_IN  = _foldArg[0] > 0 ? _foldArg[0] : 1.30;   // 이 아래면 접힘
+        const FOLD_OUT = _foldArg[1] > 0 ? _foldArg[1] : 1.60;   // 이 위여야 폄 — 사이 구간은 직전 판정 유지
+        const FOLD_VOTES = 3;    // 4개 중 3개. 약지·새끼는 가려져 오인식이 잦아 만장일치를 요구하지 않는다
+
+        // 계기판(?fps=1)에 띄울 최근 실측값. 어느 임계값이 맞는지 눈으로 보고 고르라고 둔다.
+        const foldDebug = { ratios: null, folded: 0, opened: 0, grab: false };
 
         const GAME_DURATION = 30;
         let state = {
@@ -1875,6 +1928,9 @@
             // reset() 은 y=-50 에서 시작한다. 전부 한꺼번에 reset 하면 한 줄로 뭉쳐 내려오므로
             // 게임 시작 시점에는 화면 위아래로 흩어 놓는다.
             scatter() { this.y = Math.random() * (canvas.height + 200) - 200; }
+            // 게임 시작(및 다시 시작) 시에는 화면을 완전히 비우고 전부 화면 위쪽에 세워 둔다.
+            // 그냥 y=-50 으로 두면 한 줄로 뭉쳐 내려오므로 위쪽으로만 흩어 놓는다.
+            stackAbove() { this.y = -50 - Math.random() * canvas.height * 0.8; }
             reset() {
                 const t = theme();
                 // 오답 비율만큼 모던 아이템을 섞는다 (음식 테마는 decoyRatio 0이라 항상 정답)
@@ -1889,7 +1945,8 @@
                 // 겹쳐서 내려오면 무엇을 잡는 건지 알 수 없고, 정답과 오답이 겹치면
                 // "가장 가까운 것" 규칙 때문에 노린 것과 다른 게 잡힌다.
                 // 이미 위쪽에 있는 것들과 떨어진 x 를 고른다 (몇 번 시도해 보고 실패하면 그냥 진행).
-                const minGapX = (t.sizeMin + t.sizeVar) * 1.15;
+                const sc = sizeScale();
+                const minGapX = (t.sizeMin + t.sizeVar) * sc * 1.15;
                 const siblings = state.blossoms;
                 let x = Math.random() * canvas.width;
                 for (let attempt = 0; attempt < 8; attempt++) {
@@ -1914,22 +1971,22 @@
                 this.active = true;
                 // 100점짜리 특별 아이템은 정답에만 붙는다
                 this.isSpecial = this.good && Math.random() < t.specialChance;
-                this.size = (Math.random() * t.sizeVar + t.sizeMin) * (this.isSpecial ? 1.5 : 1);
+                this.size = (Math.random() * t.sizeVar + t.sizeMin) * sc * (this.isSpecial ? 1.5 : 1);
                 this.speed = (Math.random() * t.speedVar + t.speedMin) * (this.isSpecial ? 0.75 : 1); // 특별 아이템은 천천히
                 // --- [최적화] 드로우 크기 사전 계산 (매 프레임 나눗셈 제거) ---
                 const _s = this.size / (BLOSSOM_CACHE_SIZE - 8);
                 this.drawSize = BLOSSOM_CACHE_SIZE * _s;
                 this.halfSize = this.drawSize * 0.5;
             }
-            update(time) {
+            update(time, dt) {
                 if (!this.active) return;
-                this.y += this.speed;
-                this.x += Math.sin(time * this.swaySpeed + this.seed) * 2;
+                this.y += this.speed * dt;
+                this.x += Math.sin(time * this.swaySpeed + this.seed) * 2 * dt;
                 // 뭘 잡을지 판단해야 하는 테마에서는 빙글빙글 돌면 알아보기 어렵다.
                 // 대신 좌우로 아주 느리게 기우뚱거리게만 한다.
                 // (swaySpeed를 그대로 쓰면 초당 3~11회 떠는 꼴이 되므로 크게 낮춘다)
                 this.rotation = this.spin
-                    ? this.rotation + this.rotSpeed
+                    ? this.rotation + this.rotSpeed * dt
                     : Math.sin(time * this.swaySpeed * 0.02 + this.seed) * 0.2;
                 if (this.y > canvas.height + 50) this.reset();
             }
@@ -1965,7 +2022,7 @@
                 this.dy = dy;
                 this.cache = cache;
             }
-            update() { this.y += this.dy; this.life -= 0.03; }
+            update(dt) { this.y += this.dy * dt; this.life -= 0.03 * dt; }
             draw(ctx) {
                 if (this.life <= 0) return;
                 ctx.globalAlpha = this.life;
@@ -1973,6 +2030,10 @@
                 ctx.globalAlpha = 1;
             }
         }
+
+        // PC 큰 화면에서 40~56px 그림은 무엇인지 알아보기에 너무 작다.
+        // 세로 720px 을 기준으로, 화면이 커진 만큼 아이템도 같이 키운다.
+        const sizeScale = () => Math.min(1.8, Math.max(1, canvas.height / 720));
 
         // 낙하물 개수는 테마마다 다르다 (음식은 쓸어담기용으로 촘촘하게, 전통물건은 겨냥용으로 성기게)
         const rebuildBlossoms = () => {
@@ -2073,10 +2134,12 @@
             state.lastTick = performance.now();
             ui.scoreDisp.innerText = state.score;
             ui.timerDisp.innerText = state.timeLeft;
+            ui.timerDisp.classList.remove('urgent');
             state.particles = [];
             state.hitFlash = 0;
-            handArmed.fill(true);   // 시작할 때 주먹을 쥐고 있어도 첫 판정을 놓치지 않게
-            state.blossoms.forEach(b => { b.reset(); b.scatter(); });
+            // 시작할 때 주먹을 쥐고 있어도 첫 판정을 놓치지 않게
+            handStates.forEach(st => { st.armed = true; st.grab = false; });
+            state.blossoms.forEach(b => { b.reset(); b.stackAbove(); });
             ui.nameInput.value = '';
             ui.submitMsg.classList.add('hidden');
             ui.btnSubmit.disabled = false;
@@ -2104,6 +2167,7 @@
             [0,17],[17,18],[18,19],[19,20],   // 새끼
             [5,9],[9,13],[13,17]              // 손바닥
         ];
+        const FINGER_TIPS = [4, 8, 12, 16, 20];
 
         const drawHandSkeleton = (landmarks, isGrab) => {
             const lineColor = isGrab ? 'rgba(80,255,160,0.9)' : 'rgba(255,255,255,0.85)';
@@ -2113,29 +2177,38 @@
             ctx.strokeStyle = lineColor;
             ctx.lineWidth = 3;
             ctx.lineCap = 'round';
+            const W = canvas.width, H = canvas.height;
+            const TAU = Math.PI * 2;
+
             ctx.beginPath();
-            for (const [a, b] of HAND_CONNECTIONS) {
-                ctx.moveTo((1 - landmarks[a].x) * canvas.width, landmarks[a].y * canvas.height);
-                ctx.lineTo((1 - landmarks[b].x) * canvas.width, landmarks[b].y * canvas.height);
+            for (let i = 0; i < HAND_CONNECTIONS.length; i++) {
+                const c = HAND_CONNECTIONS[i];
+                ctx.moveTo((1 - landmarks[c[0]].x) * W, landmarks[c[0]].y * H);
+                ctx.lineTo((1 - landmarks[c[1]].x) * W, landmarks[c[1]].y * H);
             }
             ctx.stroke();
 
-            // 관절
+            // 관절 — 색이 같으므로 21개를 한 패스에 모아 fill 한 번으로 끝낸다
             ctx.fillStyle = jointColor;
+            ctx.beginPath();
             for (let i = 0; i < landmarks.length; i++) {
                 const lm = landmarks[i];
-                ctx.beginPath();
-                ctx.arc((1 - lm.x) * canvas.width, lm.y * canvas.height, 4, 0, Math.PI * 2);
-                ctx.fill();
+                const x = (1 - lm.x) * W, y = lm.y * H;
+                ctx.moveTo(x + 4, y);          // moveTo 없이 arc 를 이으면 직선이 따라 붙는다
+                ctx.arc(x, y, 4, 0, TAU);
             }
+            ctx.fill();
 
-            // 손가락 끝 (더 크게, 다른 색)
+            // 손가락 끝 (더 크게, 다른 색) — 역시 한 패스
             ctx.fillStyle = tipColor;
-            for (const tip of [4, 8, 12, 16, 20]) {
-                ctx.beginPath();
-                ctx.arc((1 - landmarks[tip].x) * canvas.width, landmarks[tip].y * canvas.height, 7, 0, Math.PI * 2);
-                ctx.fill();
+            ctx.beginPath();
+            for (let i = 0; i < FINGER_TIPS.length; i++) {
+                const lm = landmarks[FINGER_TIPS[i]];
+                const x = (1 - lm.x) * W, y = lm.y * H;
+                ctx.moveTo(x + 7, y);
+                ctx.arc(x, y, 7, 0, TAU);
             }
+            ctx.fill();
         };
 
         // 아이템 하나를 잡았을 때의 처리 (정답/오답 공통 진입점)
@@ -2162,54 +2235,122 @@
         // ==========================================
         // 메인 루프
         // ==========================================
+        // --- AI 추론 ---
+        // 이 호출은 메인 스레드를 10~30ms 붙잡는다. 프레임 맨 앞에서 돌리면 그 프레임의
+        // 드로우가 전부 뒤로 밀려 화면에 늦게 나가므로, 그리기를 끝낸 "뒤"에 돌린다.
+        // 판정에 쓰이는 손 위치는 최대 한 프레임(≈16ms) 낡아지지만 눈에 띄지 않는다.
+        const _ratioBuf = [0, 0, 0, 0];
+        const runInference = (timestamp) => {
+        // --- AI 추론 (프레임 스킵) ---
+        if (handLandmarker && video.currentTime !== lastVideoTime && (timestamp - lastInferenceTime > inferenceInterval)) {
+            lastVideoTime = video.currentTime;
+            lastInferenceTime = timestamp;
+
+            const t0 = performance.now();
+            const results = handLandmarker.detectForVideo(video, timestamp);
+            // 추론이 무거운 기기일수록 주기를 늘려 프레임을 지키고, 가벼우면 촘촘하게 본다
+            inferCostMs += (performance.now() - t0 - inferCostMs) * 0.2;
+            inferenceInterval = Math.min(INFER_MAX_MS, Math.max(INFER_MIN_MS, inferCostMs * 4));
+
+            state.isGrabbing = false;
+            const newPosList = [];
+            const seen = [];
+
+            currHandLandmarks = (results && results.landmarks) ? results.landmarks : [];
+            if (results && results.landmarks) {
+                for (let hi = 0; hi < results.landmarks.length; hi++) {
+                    const landmarks = results.landmarks[hi];
+                    const wrist = landmarks[0];
+
+                    // 손가락 4개를 각각 접힘/폄/애매 로 나눠 표를 센다
+                    let folded = 0, opened = 0;
+                    for (let f = 0; f < FINGER_JOINTS.length; f++) {
+                        const tip = landmarks[FINGER_JOINTS[f][0]];
+                        const mcp = landmarks[FINGER_JOINTS[f][1]];
+                        const dtx = tip.x - wrist.x, dty = tip.y - wrist.y;
+                        const dmx = mcp.x - wrist.x, dmy = mcp.y - wrist.y;
+                        const mcpDist = Math.sqrt(dmx * dmx + dmy * dmy);
+                        if (mcpDist < 1e-6) continue;           // 손목과 관절이 겹쳐 보이는 이상값
+                        const ratio = Math.sqrt(dtx * dtx + dty * dty) / mcpDist;
+                        if (ratio < FOLD_IN) folded++;
+                        else if (ratio > FOLD_OUT) opened++;
+                        if (fpsMeterOn) _ratioBuf[f] = ratio;
+                    }
+                    if (fpsMeterOn && hi === 0) {
+                        foldDebug.ratios = _ratioBuf.map(r => r.toFixed(2)).join('/');
+                        foldDebug.folded = folded; foldDebug.opened = opened;
+                    }
+
+                    // 왼손/오른손 라벨을 상태 키로 쓴다 (없으면 슬롯 번호로 대체)
+                    const hd = results.handednesses && results.handednesses[hi] && results.handednesses[hi][0];
+                    const key = hd ? hd.categoryName : ('slot' + hi);
+                    const st = getHandState(key);
+                    seen.push(key);
+
+                    // 표가 갈리는 애매한 구간에서는 직전 판정을 유지한다.
+                    // 경계에서 매 샘플 켜졌다 꺼지면 헛손질에 장전만 소모된다.
+                    let isGrab = st.grab;
+                    if (folded >= FOLD_VOTES) isGrab = true;
+                    else if (opened >= FOLD_VOTES) isGrab = false;
+                    st.grab = isGrab;
+                    if (fpsMeterOn && hi === 0) foldDebug.grab = isGrab;
+
+                    const palm = landmarks[9];
+                    const px = (1 - palm.x) * canvas.width;
+                    const py = palm.y * canvas.height;
+                    const grabRadius = Math.max(canvas.width * 0.08, 60);
+                    newPosList.push({ x: px, y: py, radius: grabRadius, isGrab, hand: st });
+                    if (isGrab) state.isGrabbing = true;
+                }
+            }
+
+            // 화면 밖으로 나갔던 손은 다시 들어올 때 바로 잡을 수 있게 장전해 둔다
+            handStates.forEach((st, key) => {
+                if (seen.indexOf(key) === -1) { st.armed = true; st.grab = false; }
+            });
+
+            currGrabPosList = newPosList;
+        }
+        };
+
+        // 평균 fps 만 보면 "60fps 인데 뚝뚝 끊긴다"를 놓친다. 구간 내 최악 프레임 시간을
+        // 같이 보여줘야 어디서 걸리는지 알 수 있다.
+        const fpsMeterOn = new URLSearchParams(location.search).has('fps');
+        const fpsEl = document.getElementById('fpsMeter');
+        let fpsFrames = 0, fpsElapsed = 0, fpsWorst = 0, fpsLastReport = 0;
+        const sampleFps = (frameMs, timestamp) => {
+            if (frameMs > fpsWorst) fpsWorst = frameMs;
+            fpsFrames++; fpsElapsed += frameMs;
+            if (timestamp - fpsLastReport < 500) return;
+            fpsLastReport = timestamp;
+            const fps = fpsElapsed > 0 ? (fpsFrames * 1000 / fpsElapsed) : 0;
+            const hand = foldDebug.ratios
+                ? ` │ 손 ${foldDebug.ratios} · 접힘 ${foldDebug.folded}/4 · ${foldDebug.grab ? '✊ 주먹' : '✋ 폄'}`
+                : ' │ 손 미인식';
+            fpsEl.textContent = `${fps.toFixed(0)} fps · 최악 ${fpsWorst.toFixed(0)}ms · 추론 ${inferCostMs.toFixed(0)}ms/${inferenceInterval.toFixed(0)}ms${hand}`;
+            fpsEl.style.color = fpsWorst > 40 ? '#ff6b6b' : (fpsWorst > 25 ? '#ffd23f' : '#7ee2a8');
+            fpsFrames = 0; fpsElapsed = 0; fpsWorst = 0;
+        };
+
         const gameLoop = (timestamp) => {
             animationFrameId = requestAnimationFrame(gameLoop);
             // --- [최적화] 프레임 레이트 상한 (120Hz+ 디바이스 대응) ---
             if (timestamp - lastFrameTime < FRAME_CAP_MS) return;
+            // 이동량을 "프레임당"이 아니라 "경과 시간당"으로 바꾸는 계수.
+            // 추론 프레임이 길어지거나 한 프레임 밀려도 아이템이 같은 속도로 흐른다.
+            // 탭 전환·GC 로 오래 멈췄다 돌아왔을 때 순간이동하지 않도록 3프레임으로 자른다.
+            const dt = Math.min((timestamp - lastFrameTime) / FRAME_MS, 3);
+            if (fpsMeterOn) sampleFps(timestamp - lastFrameTime, timestamp);
             lastFrameTime = timestamp;
 
             // --- [최적화] 비디오 drawImage 완전 제거 (CSS 배경 사용) ---
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // --- AI 추론 (프레임 스킵) ---
-            if (handLandmarker && video.currentTime !== lastVideoTime && (timestamp - lastInferenceTime > INFERENCE_INTERVAL)) {
-                lastVideoTime = video.currentTime;
-                lastInferenceTime = timestamp;
-
-                const results = handLandmarker.detectForVideo(video, timestamp);
-
-                state.isGrabbing = false;
-                const newPosList = [];
-
-                currHandLandmarks = (results && results.landmarks) ? results.landmarks : [];
-                if (results && results.landmarks) {
-                    for (const landmarks of results.landmarks) {
-                        const wrist = landmarks[0];
-                        const isFingerFolded = (tipIdx, mcpIdx) => {
-                            const tip = landmarks[tipIdx];
-                            const mcp = landmarks[mcpIdx];
-                            const dtx = tip.x - wrist.x, dty = tip.y - wrist.y;
-                            const dmx = mcp.x - wrist.x, dmy = mcp.y - wrist.y;
-                            return (dtx * dtx + dty * dty) < (dmx * dmx + dmy * dmy);
-                        };
-                        const isGrab = isFingerFolded(8,5) && isFingerFolded(12,9) && isFingerFolded(16,13) && isFingerFolded(20,17);
-                        const palm = landmarks[9];
-                        const px = (1 - palm.x) * canvas.width;
-                        const py = palm.y * canvas.height;
-                        const grabRadius = Math.max(canvas.width * 0.08, 60);
-                        newPosList.push({ x: px, y: py, radius: grabRadius, isGrab });
-                        if (isGrab) state.isGrabbing = true;
-                    }
-                }
-                currGrabPosList = newPosList;
-            }
 
             // 판정용 손 위치 (풀 재사용, allocation 없음).
             // 보간하지 않는다 — 화면에 그려지는 손 뼈대가 최신 위치를 쓰므로,
             // 보간하면 "손은 아이템 위에 있는데 판정은 옛 자리에서" 나는 어긋남이 생긴다.
             const grabPosCount = currGrabPosList.length;
-            // 인식되지 않는 손은 다음에 나타날 때 바로 잡을 수 있도록 장전 상태로 되돌린다
-            for (let i = grabPosCount; i < handArmed.length; i++) handArmed[i] = true;
             state.grabPosList.length = 0;
             for (let i = 0; i < grabPosCount; i++) {
                 const p = _grabPosPool[i];
@@ -2218,10 +2359,11 @@
                 p.y = curr.y;
                 p.radius = curr.radius;
                 p.isGrab = curr.isGrab;
+                p.hand = curr.hand;
                 state.grabPosList.push(p);
                 // 손을 편 손은 다시 장전한다.
                 // isGrabbing 블록 안에서 하면 손을 폈을 때 실행되지 않으므로 반드시 여기서 한다.
-                if (!p.isGrab) handArmed[i] = true;
+                if (!p.isGrab && p.hand) p.hand.armed = true;
             }
 
             // 손 스켈레톤 렌더링
@@ -2236,6 +2378,7 @@
                 if (timestamp - state.lastTick >= 1000) {
                     state.timeLeft--;
                     ui.timerDisp.innerText = state.timeLeft;
+                    ui.timerDisp.classList.toggle('urgent', state.timeLeft <= 5);
                     state.lastTick = timestamp;
                     if (state.timeLeft <= 0) gameOverFunc();
                 }
@@ -2243,21 +2386,21 @@
                 const blossoms = state.blossoms;
                 const grabList = state.grabPosList;
 
-                for (let bi = 0; bi < blossoms.length; bi++) blossoms[bi].update(timestamp);
+                for (let bi = 0; bi < blossoms.length; bi++) blossoms[bi].update(timestamp, dt);
 
                 // --- [최적화] 충돌: 거리제곱 비교 (Math.hypot → dx*dx+dy*dy) ---
                 if (state.isGrabbing) {
                     if (theme().preciseCatch) {
                         // 오답이 섞인 테마: 주먹 하나당 반경 안에서 "가장 가까운 한 개"만 잡는다.
                         // 쓸어담게 두면 정답과 오답이 동시에 잡혀 겨냥이 무의미해진다.
-                        const pad = theme().catchPad;
+                        const pad = theme().catchPad * sizeScale();
                         for (let gi = 0; gi < grabList.length; gi++) {
                             const pos = grabList[gi];
                             if (!pos.isGrab) continue;
                             // 주먹을 쥐고 있는 동안 판정은 딱 한 번. 다시 잡으려면 손을 폈다 쥐어야 한다.
                             // (빗나가도 장전을 소모한다 — 안 그러면 쥔 채로 기다렸다가 주워담게 된다)
-                            if (!handArmed[gi]) continue;
-                            handArmed[gi] = false;
+                            if (!pos.hand || !pos.hand.armed) continue;
+                            pos.hand.armed = false;
 
                             let bestIdx = -1, bestDist = Infinity;
                             for (let bi = 0; bi < blossoms.length; bi++) {
@@ -2295,7 +2438,7 @@
                     }
                 }
             } else if (state.status === 'MENU' || state.status === 'GAMEOVER') {
-                for (let i = 0; i < state.blossoms.length; i++) state.blossoms[i].update(timestamp);
+                for (let i = 0; i < state.blossoms.length; i++) state.blossoms[i].update(timestamp, dt);
             }
 
             // 드로우
@@ -2307,12 +2450,12 @@
             if (state.hitFlash > 0) {
                 ctx.fillStyle = `rgba(220, 32, 32, ${state.hitFlash * 0.32})`;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
-                state.hitFlash = Math.max(0, state.hitFlash - 0.06);
+                state.hitFlash = Math.max(0, state.hitFlash - 0.06 * dt);
             }
 
             for (let i = state.particles.length - 1; i >= 0; i--) {
                 const p = state.particles[i];
-                p.update();
+                p.update(dt);
                 p.draw(ctx);
                 // --- [최적화] splice 제거 → swap-with-last O(1) 삭제 ---
                 if (p.life <= 0) {
@@ -2320,6 +2463,9 @@
                     state.particles.length--;
                 }
             }
+
+            // 이번 프레임 그리기가 끝난 뒤에 추론한다 (위 runInference 주석 참고)
+            runInference(timestamp);
         };
 
         // 이벤트
@@ -2350,6 +2496,7 @@
 
         // 초기화
         const initApp = async () => {
+            if (fpsMeterOn) fpsEl.classList.remove('hidden');
             resizeCanvas();
             applyTheme(state.themeId);
             await Promise.all([initFirebase(), startCamera(), initMediaPipe()]);
