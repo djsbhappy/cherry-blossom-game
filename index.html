@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>잡기 게임 — 음식 / 전통물건</title>
+    <title>전통물건 잡기</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { margin: 0; overflow: hidden; background-color: #b8d4f0; touch-action: none; }
@@ -32,18 +32,6 @@
         /* 5초 이하 경고 */
         #timerDisplay.urgent { color: #ff5a5a; animation: timerPulse .6s ease-in-out infinite; }
         @keyframes timerPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.18); } }
-        /* 테마 선택 버튼 */
-        .theme-btn {
-            border: 2px solid rgba(255,255,255,0.25);
-            background: rgba(255,255,255,0.07);
-            transition: all .15s ease;
-        }
-        .theme-btn:hover { background: rgba(255,255,255,0.16); }
-        .theme-btn.selected {
-            border-color: var(--theme-accent, #ffe066);
-            background: rgba(255,255,255,0.18);
-            box-shadow: 0 0 14px var(--theme-accent, #ffe066);
-        }
     </style>
 </head>
 <body class="relative text-white font-sans">
@@ -74,13 +62,7 @@
 
     <!-- 메인 메뉴 -->
     <div id="menuScreen" class="fixed inset-0 flex flex-col items-center justify-start z-40 glass-panel hidden overflow-y-auto py-8 px-4">
-        <h1 id="menuTitle" class="text-5xl sm:text-6xl font-extrabold text-yellow-400 mb-4 text-center" style="text-shadow:0 0 10px #ffe066,0 0 20px #ffe066">🍕 음식 잡기 🍔</h1>
-
-        <!-- 테마 선택 -->
-        <div class="flex gap-3 mb-5">
-            <button data-theme="food" class="theme-btn px-5 py-3 rounded-xl text-lg font-bold">🍕 음식 잡기</button>
-            <button data-theme="korea" class="theme-btn px-5 py-3 rounded-xl text-lg font-bold">전통물건 잡기</button>
-        </div>
+        <h1 id="menuTitle" class="text-5xl sm:text-6xl font-extrabold mb-4 text-center" style="color:#4fa3ff;text-shadow:0 0 10px #4fa3ff,0 0 22px #d64545">전통물건 잡기</h1>
 
         <p id="menuDesc" class="text-lg mb-5 text-center max-w-lg text-gray-200"></p>
 
@@ -1838,8 +1820,7 @@
             menuDesc: document.getElementById('menuDesc'),
             legendBox: document.getElementById('legendBox'),
             legendGood: document.getElementById('legendGood'),
-            legendBad: document.getElementById('legendBad'),
-            themeBtns: Array.from(document.querySelectorAll('.theme-btn'))
+            legendBad: document.getElementById('legendBad')
         };
 
         let handLandmarker;
@@ -1910,7 +1891,7 @@
         const GAME_DURATION = 30;
         let state = {
             status: 'LOADING',
-            themeId: 'food',
+            themeId: 'korea',
             score: 0,
             timeLeft: GAME_DURATION,
             lastTick: 0,
@@ -2071,8 +2052,6 @@
             ui.menuTitle.style.color = t.accent;
             ui.menuTitle.style.textShadow = t.titleShadow;
             ui.menuDesc.innerHTML = t.desc;
-            document.documentElement.style.setProperty('--theme-accent', t.accent);
-            ui.themeBtns.forEach(btn => btn.classList.toggle('selected', btn.dataset.theme === themeId));
 
             // 뭘 잡아야 하는지 모르면 감점이 그냥 운이 되므로, 오답이 있는 테마는 범례를 보여준다.
             if (t.decoys.length > 0) {
@@ -2471,8 +2450,7 @@
         // 이벤트
         ui.btnStart.addEventListener('click', startGame);
         ui.btnRestart.addEventListener('click', startGame);
-        ui.themeBtns.forEach(btn => btn.addEventListener('click', () => applyTheme(btn.dataset.theme)));
-        // 테마 선택은 메뉴에만 있으므로, 한 판 끝난 뒤 메뉴로 돌아갈 길이 반드시 필요하다
+        // 순위표를 보고 다시 시작하려면 메뉴로 돌아갈 길이 필요하다
         ui.btnMenu.addEventListener('click', () => changeState('MENU'));
 
         ui.btnSubmit.addEventListener('click', async () => {
