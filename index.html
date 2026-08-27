@@ -50,9 +50,6 @@
         </div>
     </div>
 
-    <!-- 성능 계기판: 주소 뒤에 ?fps=1 을 붙였을 때만 보인다 -->
-    <div id="fpsMeter" class="fixed bottom-2 left-2 px-2 py-1 rounded bg-black/70 text-xs font-mono text-green-300 z-30 hidden pointer-events-none">–</div>
-
     <!-- 로딩 화면 -->
     <div id="loadingScreen" class="fixed inset-0 flex flex-col items-center justify-center z-50" style="background-color:#b8d4f0">
         <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-pink-400 mb-4"></div>
@@ -101,12 +98,9 @@
             <h2 id="gameOverLbTitle" class="text-2xl font-bold text-center text-pink-300 mb-4 border-b border-pink-800 pb-2">🏆 명예의 전당</h2>
             <ul id="gameOverLeaderboard" class="space-y-2"></ul>
         </div>
-        <div class="flex flex-wrap gap-3 justify-center pb-6">
+        <div class="flex justify-center pb-6">
             <button id="restartBtn" class="px-8 py-3 bg-gray-600 hover:bg-gray-500 rounded-full text-xl font-bold transition-colors shadow-lg">
                 다시 시작하기
-            </button>
-            <button id="menuBtn" class="px-8 py-3 bg-gray-700 hover:bg-gray-600 rounded-full text-xl font-bold transition-colors shadow-lg border border-gray-500">
-                테마 바꾸기
             </button>
         </div>
     </div>
@@ -1815,7 +1809,6 @@
             btnStart: document.getElementById('startBtn'),
             btnSubmit: document.getElementById('submitScoreBtn'),
             btnRestart: document.getElementById('restartBtn'),
-            btnMenu: document.getElementById('menuBtn'),
             menuTitle: document.getElementById('menuTitle'),
             menuDesc: document.getElementById('menuDesc'),
             legendBox: document.getElementById('legendBox'),
@@ -1885,8 +1878,6 @@
         const FOLD_OUT = _foldArg[1] > 0 ? _foldArg[1] : 1.60;   // 이 위여야 폄 — 사이 구간은 직전 판정 유지
         const FOLD_VOTES = 3;    // 4개 중 3개. 약지·새끼는 가려져 오인식이 잦아 만장일치를 요구하지 않는다
 
-        // 계기판(?fps=1)에 띄울 최근 실측값. 어느 임계값이 맞는지 눈으로 보고 고르라고 둔다.
-        const foldDebug = { ratios: null, folded: 0, opened: 0, grab: false };
 
         const GAME_DURATION = 30;
         let state = {
@@ -2218,7 +2209,6 @@
         // 이 호출은 메인 스레드를 10~30ms 붙잡는다. 프레임 맨 앞에서 돌리면 그 프레임의
         // 드로우가 전부 뒤로 밀려 화면에 늦게 나가므로, 그리기를 끝낸 "뒤"에 돌린다.
         // 판정에 쓰이는 손 위치는 최대 한 프레임(≈16ms) 낡아지지만 눈에 띄지 않는다.
-        const _ratioBuf = [0, 0, 0, 0];
         const runInference = (timestamp) => {
         // --- AI 추론 (프레임 스킵) ---
         if (handLandmarker && video.currentTime !== lastVideoTime && (timestamp - lastInferenceTime > inferenceInterval)) {
@@ -2253,11 +2243,6 @@
                         const ratio = Math.sqrt(dtx * dtx + dty * dty) / mcpDist;
                         if (ratio < FOLD_IN) folded++;
                         else if (ratio > FOLD_OUT) opened++;
-                        if (fpsMeterOn) _ratioBuf[f] = ratio;
-                    }
-                    if (fpsMeterOn && hi === 0) {
-                        foldDebug.ratios = _ratioBuf.map(r => r.toFixed(2)).join('/');
-                        foldDebug.folded = folded; foldDebug.opened = opened;
                     }
 
                     // 왼손/오른손 라벨을 상태 키로 쓴다 (없으면 슬롯 번호로 대체)
@@ -2272,7 +2257,6 @@
                     if (folded >= FOLD_VOTES) isGrab = true;
                     else if (opened >= FOLD_VOTES) isGrab = false;
                     st.grab = isGrab;
-                    if (fpsMeterOn && hi === 0) foldDebug.grab = isGrab;
 
                     const palm = landmarks[9];
                     const px = (1 - palm.x) * canvas.width;
@@ -2292,25 +2276,6 @@
         }
         };
 
-        // 평균 fps 만 보면 "60fps 인데 뚝뚝 끊긴다"를 놓친다. 구간 내 최악 프레임 시간을
-        // 같이 보여줘야 어디서 걸리는지 알 수 있다.
-        const fpsMeterOn = new URLSearchParams(location.search).has('fps');
-        const fpsEl = document.getElementById('fpsMeter');
-        let fpsFrames = 0, fpsElapsed = 0, fpsWorst = 0, fpsLastReport = 0;
-        const sampleFps = (frameMs, timestamp) => {
-            if (frameMs > fpsWorst) fpsWorst = frameMs;
-            fpsFrames++; fpsElapsed += frameMs;
-            if (timestamp - fpsLastReport < 500) return;
-            fpsLastReport = timestamp;
-            const fps = fpsElapsed > 0 ? (fpsFrames * 1000 / fpsElapsed) : 0;
-            const hand = foldDebug.ratios
-                ? ` │ 손 ${foldDebug.ratios} · 접힘 ${foldDebug.folded}/4 · ${foldDebug.grab ? '✊ 주먹' : '✋ 폄'}`
-                : ' │ 손 미인식';
-            fpsEl.textContent = `${fps.toFixed(0)} fps · 최악 ${fpsWorst.toFixed(0)}ms · 추론 ${inferCostMs.toFixed(0)}ms/${inferenceInterval.toFixed(0)}ms${hand}`;
-            fpsEl.style.color = fpsWorst > 40 ? '#ff6b6b' : (fpsWorst > 25 ? '#ffd23f' : '#7ee2a8');
-            fpsFrames = 0; fpsElapsed = 0; fpsWorst = 0;
-        };
-
         const gameLoop = (timestamp) => {
             animationFrameId = requestAnimationFrame(gameLoop);
             // --- [최적화] 프레임 레이트 상한 (120Hz+ 디바이스 대응) ---
@@ -2319,7 +2284,6 @@
             // 추론 프레임이 길어지거나 한 프레임 밀려도 아이템이 같은 속도로 흐른다.
             // 탭 전환·GC 로 오래 멈췄다 돌아왔을 때 순간이동하지 않도록 3프레임으로 자른다.
             const dt = Math.min((timestamp - lastFrameTime) / FRAME_MS, 3);
-            if (fpsMeterOn) sampleFps(timestamp - lastFrameTime, timestamp);
             lastFrameTime = timestamp;
 
             // --- [최적화] 비디오 drawImage 완전 제거 (CSS 배경 사용) ---
@@ -2450,8 +2414,6 @@
         // 이벤트
         ui.btnStart.addEventListener('click', startGame);
         ui.btnRestart.addEventListener('click', startGame);
-        // 순위표를 보고 다시 시작하려면 메뉴로 돌아갈 길이 필요하다
-        ui.btnMenu.addEventListener('click', () => changeState('MENU'));
 
         ui.btnSubmit.addEventListener('click', async () => {
             const name = ui.nameInput.value.trim();
@@ -2474,7 +2436,6 @@
 
         // 초기화
         const initApp = async () => {
-            if (fpsMeterOn) fpsEl.classList.remove('hidden');
             resizeCanvas();
             applyTheme(state.themeId);
             await Promise.all([initFirebase(), startCamera(), initMediaPipe()]);
