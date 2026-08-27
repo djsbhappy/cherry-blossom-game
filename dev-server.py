@@ -8,6 +8,7 @@ index.html 자체는 건드리지 않는다. 응답을 보낼 때만 라이브�
 </body> 앞에 끼워 넣으므로, 저장소 파일은 배포본 그대로 남는다.
 """
 import http.server, socketserver, os, sys, time, threading, webbrowser
+from urllib.parse import urlsplit
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 TARGET = os.path.join(ROOT, "index.html")
@@ -54,11 +55,15 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             super().log_message(fmt, *args)
 
     def do_GET(self):
-        if self.path.startswith("/__reload"):
+        # self.path 에는 쿼리스트링이 붙어 있다. 떼고 비교하지 않으면
+        # /index.html?fps=1 이 아래 super().do_GET() 으로 새어나가, 라이브리로드가
+        # 주입되지 않은 원본이 그대로(심지어 304 캐시로) 나간다.
+        path = urlsplit(self.path).path
+        if path == "/__reload":
             return self._sse()
-        if self.path in ("/", "/index.html"):
+        if path in ("/", "/index.html"):
             return self._html()
-        if self.path == "/favicon.ico":
+        if path == "/favicon.ico":
             # 없는 파일이라 SimpleHTTPRequestHandler 가 트레이스백을 뱉는다. 조용히 넘긴다.
             self.send_response(204); self.end_headers(); return
         return super().do_GET()
