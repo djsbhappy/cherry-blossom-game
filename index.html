@@ -6,7 +6,28 @@
     <title>전통물건 잡기</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #b8d4f0; touch-action: none; }
+        /* ==========================================
+           글래스모피즘(반투명 유리) 테마
+           - 파스텔 그라데이션 + 흐릿한 블롭 배경
+           - 반투명 흰 유리 카드 + 밝은 테두리 + 부드러운 그림자
+           - 밝은 배경이므로 글자는 어두운 자주빛 회색을 기본으로 쓴다
+           ========================================== */
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.45);
+            --glass-bg-strong: rgba(255, 255, 255, 0.62);
+            --glass-border: rgba(255, 255, 255, 0.7);
+            --glass-shadow: 0 8px 32px rgba(120, 100, 160, 0.18);
+            --glass-inset: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+            --ink: #5b4a6b;
+            --ink-soft: #8a7d99;
+            --pink: #e4779f;
+            --mint: #6fcfb2;
+        }
+        body {
+            margin: 0; overflow: hidden; touch-action: none;
+            color: var(--ink);
+            background: linear-gradient(135deg, #e9dcf7 0%, #d9e7f8 50%, #dcf3ec 100%);
+        }
         /* 비디오를 CSS 배경으로 깔아 drawImage 제거 */
         #video {
             position: fixed; top: 0; left: 0;
@@ -20,86 +41,201 @@
             width: 100vw; height: 100vh;
             z-index: 1;
         }
-        .glass-panel { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(10px); }
-        .pink-glow { text-shadow: 0 0 10px #ffb7c5, 0 0 20px #ffb7c5; }
-        /* 흰 글씨는 밝은 웹캠 배경에 묻힌다. 남은 시간은 색 + 검은 외곽선으로 띄운다. */
-        #timerDisplay {
-            color: #ffd23f;
-            text-shadow: 0 0 10px #ff9f1c, 0 0 22px #ff6b00,
-                         -2px 0 0 rgba(0,0,0,.85), 2px 0 0 rgba(0,0,0,.85),
-                         0 -2px 0 rgba(0,0,0,.85), 0 2px 0 rgba(0,0,0,.85);
+
+        /* ---- 유리 표면 ---- */
+        .glass {
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px) saturate(150%);
+            -webkit-backdrop-filter: blur(16px) saturate(150%);
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--glass-shadow), var(--glass-inset);
+            border-radius: 28px;
         }
-        /* 5초 이하 경고 */
-        #timerDisplay.urgent { color: #ff5a5a; animation: timerPulse .6s ease-in-out infinite; }
-        @keyframes timerPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+        .glass-strong { background: var(--glass-bg-strong); }
+
+        /* ---- 전체 화면 오버레이: 파스텔 블롭 배경 ----
+           블롭은 별도 DOM 없이 radial-gradient 를 여러 겹 깔아 그린다(렌더 비용이 거의 없다).
+           웹캠 화면 위에 얹히므로 backdrop-filter 로 뒤를 흐려 카드가 잘 읽히게 한다. */
+        .screen-glass::before {
+            content: '';
+            position: fixed; inset: 0; z-index: -1;
+            background:
+                radial-gradient(38vmax 38vmax at 10% 15%, rgba(255, 186, 216, 0.55), transparent 68%),
+                radial-gradient(30vmax 30vmax at 90% 10%, rgba(172, 233, 213, 0.55), transparent 68%),
+                radial-gradient(44vmax 44vmax at 82% 85%, rgba(198, 178, 245, 0.5), transparent 70%),
+                radial-gradient(28vmax 28vmax at 15% 90%, rgba(255, 255, 255, 0.55), transparent 70%),
+                linear-gradient(135deg, rgba(233, 220, 247, 0.88), rgba(217, 231, 248, 0.86) 50%, rgba(220, 243, 236, 0.88));
+            backdrop-filter: blur(22px) saturate(140%);
+            -webkit-backdrop-filter: blur(22px) saturate(140%);
+        }
+
+        /* ---- 알약 버튼 ---- */
+        .btn-glass {
+            border: 1px solid rgba(255, 255, 255, 0.75);
+            border-radius: 999px;
+            color: #fff;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            text-shadow: 0 1px 3px rgba(150, 60, 105, 0.55);
+            background: linear-gradient(135deg, #ef86b3, #f8bcd6);
+            box-shadow: 0 10px 24px rgba(230, 130, 175, 0.45), var(--glass-inset);
+            transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+        }
+        .btn-glass:hover { transform: translateY(-2px) scale(1.03); filter: brightness(1.04); }
+        .btn-glass:active { transform: translateY(0) scale(.98); }
+        .btn-glass.mint {
+            background: linear-gradient(135deg, #63cbab, #a8e6d3);
+            box-shadow: 0 10px 24px rgba(90, 195, 165, 0.45), var(--glass-inset);
+            text-shadow: 0 1px 3px rgba(25, 115, 92, 0.55);
+        }
+        .btn-glass.lilac {
+            background: linear-gradient(135deg, #a48ce9, #cbbef4);
+            box-shadow: 0 10px 24px rgba(150, 125, 220, 0.45), var(--glass-inset);
+            text-shadow: 0 1px 3px rgba(80, 55, 150, 0.55);
+        }
+
+        /* ---- 입력창 ---- */
+        .glass-input {
+            background: rgba(255, 255, 255, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            color: var(--ink);
+            outline: none;
+            transition: box-shadow .2s ease;
+        }
+        .glass-input::placeholder { color: #b3a8bf; }
+        .glass-input:focus { box-shadow: 0 0 0 3px rgba(240, 143, 182, 0.35); }
+
+        /* ---- 순위표 한 줄 ---- */
+        .lb-row {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        }
+        .rank-1 { color: #d99b2b; }
+        .rank-2 { color: #8f97a3; }
+        .rank-3 { color: #c07f52; }
+        .rank-x { color: #5b4a6b; }
+
+        /* ---- 인게임 HUD 칩 ----
+           웹캠 위에 뜨므로 흰 유리를 조금 더 진하게 깔아 대비를 확보한다. */
+        .hud-chip {
+            background: rgba(255, 255, 255, 0.55);
+            backdrop-filter: blur(14px) saturate(150%);
+            -webkit-backdrop-filter: blur(14px) saturate(150%);
+            border: 1px solid rgba(255, 255, 255, 0.75);
+            box-shadow: 0 8px 24px rgba(90, 70, 120, 0.22), var(--glass-inset);
+            border-radius: 24px;
+            padding: 10px 22px;
+            line-height: 1.1;
+        }
+        .hud-label { color: var(--ink-soft); font-size: .85rem; font-weight: 700; letter-spacing: .08em; }
+        #scoreDisplay { color: var(--pink); text-shadow: 0 1px 0 rgba(255,255,255,.9); }
+        /* 남은 시간은 흰 글씨면 밝은 웹캠 화면에 묻힌다. 유리 칩 + 진한 색으로 띄운다. */
+        #timerDisplay { color: #f2913f; text-shadow: 0 1px 0 rgba(255,255,255,.9); }
+        #timerDisplay.urgent { color: #ff5f80; animation: timerPulse .6s ease-in-out infinite; }
+        @keyframes timerPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.14); } }
+
+        /* ---- 제목 ---- */
+        .title-gradient {
+            background: linear-gradient(120deg, #e2749f 0%, #8f6fd8 48%, #2fae90 100%);
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent; color: transparent;
+        }
+
+        /* ---- 로딩 스피너 ---- */
+        .glass-spinner {
+            width: 64px; height: 64px; border-radius: 50%;
+            border: 5px solid rgba(255, 255, 255, 0.6);
+            border-top-color: #e4779f;
+            border-right-color: #b39ae8;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* 스크롤바도 파스텔로 */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-thumb { background: rgba(180, 160, 210, .45); border-radius: 999px; }
     </style>
 </head>
-<body class="relative text-white font-sans">
+<body class="relative font-sans">
     <video id="video" autoplay playsinline></video>
     <canvas id="gameCanvas"></canvas>
 
     <!-- 인게임 HUD -->
-    <div id="hud" class="fixed top-0 left-0 w-full p-6 flex justify-between items-start pointer-events-none hidden z-10">
-        <div class="flex flex-col">
-            <span class="text-xl text-pink-300 font-bold">점수</span>
-            <span id="scoreDisplay" class="text-5xl font-extrabold pink-glow">0</span>
+    <div id="hud" class="fixed top-0 left-0 w-full p-5 sm:p-6 flex justify-between items-start pointer-events-none hidden z-10">
+        <div class="hud-chip flex flex-col items-start">
+            <span class="hud-label">점수</span>
+            <span id="scoreDisplay" class="text-4xl sm:text-5xl font-extrabold">0</span>
         </div>
-        <div class="flex flex-col items-end">
-            <span class="text-xl text-pink-300 font-bold">남은 시간</span>
-            <span id="timerDisplay" class="text-5xl font-extrabold">30</span>
+        <div class="hud-chip flex flex-col items-end">
+            <span class="hud-label">남은 시간</span>
+            <span id="timerDisplay" class="text-4xl sm:text-5xl font-extrabold">30</span>
         </div>
     </div>
 
     <!-- 로딩 화면 -->
-    <div id="loadingScreen" class="fixed inset-0 flex flex-col items-center justify-center z-50" style="background-color:#b8d4f0">
-        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-pink-400 mb-4"></div>
-        <h2 class="text-2xl font-bold text-pink-300">카메라 및 AI 모델 로딩 중...</h2>
-        <p class="text-gray-400 mt-2">최적화 모드로 준비 중입니다.</p>
+    <div id="loadingScreen" class="fixed inset-0 flex flex-col items-center justify-center z-50 screen-glass">
+        <div class="glass px-10 py-9 flex flex-col items-center">
+            <div class="glass-spinner mb-5"></div>
+            <h2 class="text-2xl font-extrabold title-gradient">카메라 및 AI 모델 로딩 중...</h2>
+            <p class="mt-2 text-sm" style="color:#8a7d99">잠시만 기다려 주세요.</p>
+        </div>
     </div>
 
     <!-- 메인 메뉴 -->
-    <div id="menuScreen" class="fixed inset-0 flex flex-col items-center justify-start z-40 glass-panel hidden overflow-y-auto py-8 px-4">
-        <h1 id="menuTitle" class="text-5xl sm:text-6xl font-extrabold mb-4 text-center" style="color:#4fa3ff;text-shadow:0 0 10px #4fa3ff,0 0 22px #d64545">전통물건 잡기</h1>
+    <div id="menuScreen" class="fixed inset-0 flex flex-col items-center justify-start z-40 screen-glass hidden overflow-y-auto py-10 px-4">
+        <h1 id="menuTitle" class="text-5xl sm:text-6xl font-extrabold mb-4 text-center title-gradient">전통물건 잡기</h1>
 
-        <p id="menuDesc" class="text-lg mb-5 text-center max-w-lg text-gray-200"></p>
+        <p id="menuDesc" class="text-base sm:text-lg mb-6 text-center max-w-lg leading-relaxed" style="color:#5b4a6b"></p>
 
         <!-- 아이템 범례 (오답이 있는 테마에서만 노출) -->
-        <div id="legendBox" class="hidden w-full max-w-lg bg-black bg-opacity-40 rounded-xl p-4 mb-6 border border-gray-700">
-            <p class="text-sm font-bold text-green-300 mb-2">✅ 이것만 잡으세요 (전통물건)</p>
-            <div id="legendGood" class="grid grid-cols-5 justify-items-center gap-1 mb-4"></div>
-            <p class="text-sm font-bold text-red-300 mb-2">❌ 이건 잡으면 감점 (요즘 물건)</p>
+        <div id="legendBox" class="hidden w-full max-w-lg glass p-5 mb-7">
+            <p class="text-sm font-bold mb-3" style="color:#2f9c76">✅ 이것만 잡으세요 (전통물건)</p>
+            <div id="legendGood" class="grid grid-cols-5 justify-items-center gap-1 mb-5"></div>
+            <p class="text-sm font-bold mb-3" style="color:#e0698a">❌ 이건 잡으면 감점 (요즘 물건)</p>
             <div id="legendBad" class="grid grid-cols-4 justify-items-center gap-1"></div>
         </div>
 
-        <button id="startBtn" class="px-8 py-4 bg-pink-500 hover:bg-pink-600 rounded-full text-2xl font-bold transition-all transform hover:scale-105 shadow-[0_0_15px_rgba(236,72,153,0.5)] mb-8">
+        <button id="startBtn" class="btn-glass px-10 py-4 text-2xl mb-8">
             게임 시작
         </button>
-        <div class="w-full max-w-sm bg-gray-800 bg-opacity-80 rounded-xl p-6 border border-pink-900 shadow-xl">
-            <h2 id="menuLbTitle" class="text-2xl font-bold text-center text-pink-300 mb-4 border-b border-pink-800 pb-2">🏆 명예의 전당 (Top 5)</h2>
+
+        <div class="w-full max-w-sm glass glass-strong p-6 mb-6">
+            <h2 id="menuLbTitle" class="text-xl font-extrabold text-center mb-4 pb-3" style="color:#5b4a6b;border-bottom:1px solid rgba(255,255,255,.75)">🏆 명예의 전당 (Top 5)</h2>
             <ul id="menuLeaderboard" class="space-y-2">
-                <li class="text-center text-gray-400">데이터를 불러오는 중...</li>
+                <li class="text-center" style="color:#8a7d99">데이터를 불러오는 중...</li>
             </ul>
         </div>
     </div>
 
     <!-- 게임 오버 화면 -->
-    <div id="gameOverScreen" class="fixed inset-0 flex flex-col items-center justify-center z-40 glass-panel hidden overflow-y-auto">
-        <h1 class="text-5xl font-extrabold text-red-400 mb-2">TIME OVER</h1>
-        <div class="text-2xl mb-6">최종 점수: <span id="finalScore" class="text-5xl font-bold text-pink-400 pink-glow ml-2">0</span></div>
-        <div id="nameInputSection" class="flex flex-col items-center mb-8">
-            <p class="mb-2 text-pink-200">순위표에 등록할 이름을 입력하세요</p>
-            <div class="flex">
-                <input type="text" id="playerName" placeholder="닉네임 (최대 8자)" maxlength="8" class="px-4 py-3 rounded-l-lg bg-gray-700 text-white border-none focus:ring-2 focus:ring-pink-500 outline-none w-48">
-                <button id="submitScoreBtn" class="px-6 py-3 bg-pink-600 hover:bg-pink-700 rounded-r-lg font-bold transition-colors">등록</button>
-            </div>
-            <p id="submitMsg" class="text-sm mt-2 text-green-400 hidden">점수가 등록되었습니다!</p>
+    <div id="gameOverScreen" class="fixed inset-0 flex flex-col items-center justify-start z-40 screen-glass hidden overflow-y-auto py-10 px-4">
+        <h1 class="text-5xl font-extrabold mb-3 title-gradient">TIME OVER</h1>
+        <div class="text-xl mb-7 flex items-center gap-3" style="color:#8a7d99">
+            최종 점수
+            <span id="finalScore" class="text-5xl font-extrabold" style="color:#e4779f">0</span>
         </div>
-        <div class="w-full max-w-sm bg-gray-800 bg-opacity-80 rounded-xl p-6 border border-pink-900 shadow-xl mb-6">
-            <h2 id="gameOverLbTitle" class="text-2xl font-bold text-center text-pink-300 mb-4 border-b border-pink-800 pb-2">🏆 명예의 전당</h2>
+
+        <div id="nameInputSection" class="flex flex-col items-center mb-8 w-full max-w-sm glass p-6">
+            <p class="mb-3 text-sm font-bold" style="color:#8a7d99">순위표에 등록할 이름을 입력하세요</p>
+            <div class="flex w-full gap-2">
+                <input type="text" id="playerName" placeholder="닉네임 (최대 8자)" maxlength="8"
+                       class="glass-input flex-1 px-4 py-3 rounded-full min-w-0">
+                <button id="submitScoreBtn" class="btn-glass mint px-6 py-3">등록</button>
+            </div>
+            <p id="submitMsg" class="text-sm mt-3 hidden" style="color:#2f9c76">점수가 등록되었습니다!</p>
+        </div>
+
+        <div class="w-full max-w-sm glass glass-strong p-6 mb-7">
+            <h2 id="gameOverLbTitle" class="text-xl font-extrabold text-center mb-4 pb-3" style="color:#5b4a6b;border-bottom:1px solid rgba(255,255,255,.75)">🏆 명예의 전당</h2>
             <ul id="gameOverLeaderboard" class="space-y-2"></ul>
         </div>
+
         <div class="flex justify-center pb-6">
-            <button id="restartBtn" class="px-8 py-3 bg-gray-600 hover:bg-gray-500 rounded-full text-xl font-bold transition-colors shadow-lg">
+            <button id="restartBtn" class="btn-glass lilac px-10 py-3 text-xl">
                 다시 시작하기
             </button>
         </div>
@@ -185,13 +321,13 @@
         const renderLeaderboard = () => {
             const scores = currentTopScores();
             const html = scores.length === 0
-                ? `<li class="text-center text-gray-400">아직 등록된 점수가 없습니다.</li>`
+                ? `<li class="text-center" style="color:#8a7d99">아직 등록된 점수가 없습니다.</li>`
                 : scores.map((s, i) => {
-                    const colors = ['text-yellow-400','text-gray-300','text-amber-600','text-white','text-white'];
+                    const colors = ['rank-1','rank-2','rank-3','rank-x','rank-x'];
                     const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
-                    return `<li class="flex justify-between items-center bg-gray-700 bg-opacity-50 px-4 py-2 rounded">
+                    return `<li class="lb-row">
                         <span class="font-bold ${colors[i]}">${medal} ${s.name}</span>
-                        <span class="font-bold text-pink-300">${s.score}점</span></li>`;
+                        <span class="font-bold" style="color:#e0699b">${s.score}점</span></li>`;
                 }).join('');
             document.getElementById('menuLeaderboard').innerHTML = html;
             document.getElementById('gameOverLeaderboard').innerHTML = html;
@@ -1755,7 +1891,7 @@
                 title: '🍕 음식 잡기 🍔',
                 accent: '#ffe066',
                 titleShadow: '0 0 10px #ffe066,0 0 20px #ffe066',
-                desc: '카메라 앞에서 <b class="text-yellow-300">손바닥을 펴서 음식에 대고 주먹을 쥐어(Grab)</b> 떨어지는 음식을 잡으세요!',
+                desc: '카메라 앞에서 <b style="color:#c98a1e">손바닥을 펴서 음식에 대고 주먹을 쥐어(Grab)</b> 떨어지는 음식을 잡으세요!',
                 goods: foodItems,
                 decoys: [],
                 decoyRatio: 0,
@@ -1774,7 +1910,7 @@
                 title: '전통물건 잡기',
                 accent: '#4fa3ff',
                 titleShadow: '0 0 10px #4fa3ff,0 0 22px #d64545',
-                desc: `<b style="color:#7ee2a8">전통물건</b>만 골라 잡으세요! 손을 폈다가 <b style="color:#ffe066">주먹을 쥘 때마다 한 개씩</b> 잡힙니다.<br>스마트폰·햄버거 같은 <b style="color:#ff8d8d">요즘 물건을 잡으면 -${PENALTY}점</b>입니다.`,
+                desc: `<b style="color:#2f9c76">전통물건</b>만 골라 잡으세요! 손을 폈다가 <b style="color:#c98a1e">주먹을 쥘 때마다 한 개씩</b> 잡힙니다.<br>스마트폰·햄버거 같은 <b style="color:#e0698a">요즘 물건을 잡으면 -${PENALTY}점</b>입니다.`,
                 goods: buildDrawnItems(TRADITIONAL_DEFS, true),
                 decoys: buildDrawnItems(MODERN_DEFS, false),
                 decoyRatio: 0.35,
@@ -2030,7 +2166,7 @@
             if (!item.dataURL) item.dataURL = item.cache.toDataURL();
             return `<div class="flex flex-col items-center w-[62px] mb-1">
                 <img src="${item.dataURL}" alt="${item.name}" class="w-10 h-10">
-                <span class="text-[11px] leading-tight text-gray-200 text-center">${item.name}</span>
+                <span class="text-[11px] leading-tight text-center" style="color:#6b5c7a">${item.name}</span>
             </div>`;
         };
 
@@ -2040,8 +2176,7 @@
             const t = theme();
 
             ui.menuTitle.innerText = t.title;
-            ui.menuTitle.style.color = t.accent;
-            ui.menuTitle.style.textShadow = t.titleShadow;
+            // 제목은 .title-gradient 로 파스텔 그라데이션을 입히므로 테마 색은 덮어쓰지 않는다.
             ui.menuDesc.innerHTML = t.desc;
 
             // 뭘 잡아야 하는지 모르면 감점이 그냥 운이 되므로, 오답이 있는 테마는 범례를 보여준다.
